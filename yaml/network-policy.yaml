@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mysql-network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: mysql
+  policyTypes:
+    - Ingress
+  ingress:
+    # Once a NetworkPolicy selects a pod for Ingress, all traffic not explicitly
+    # allowed below is denied by default. Only adminer and the sample nginx app
+    # may reach MySQL on 3306.
+    - from:
+        - podSelector:
+            matchLabels:
+              app: adminer
+        - podSelector:
+            matchLabels:
+              app: sample-app
+      ports:
+        - protocol: TCP
+          port: 3306
