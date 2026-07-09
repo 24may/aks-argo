@@ -34,6 +34,12 @@ jobs:
             curl -sL https://aka.ms/InstallAzureCLIDeb | bash
           fi
 
+      - name: Debug (временно, удалить после проверки)
+        run: |
+          echo "CLIENT_ID set: ${{ vars.AZURE_CLIENT_ID != '' }}"
+          echo "TENANT_ID set: ${{ vars.AZURE_TENANT_ID != '' }}"
+          echo "SUBSCRIPTION_ID set: ${{ vars.AZURE_SUBSCRIPTION_ID != '' }}"
+
       - uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
