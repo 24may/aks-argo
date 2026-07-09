@@ -27,6 +27,12 @@ jobs:
     strategy:
       matrix:
         env: [dev]   # добавить stage/prod по мере готовности процесса
+    # Serialize against apply/destroy on the same environment's state so a plan
+    # can never be produced (or consumed) while another run is mutating state -
+    # this is what causes "Error: Saved plan is stale" in the downstream apply job.
+    concurrency:
+      group: terraform-${{ matrix.env }}
+      cancel-in-progress: false
     environment: ${{ matrix.env }} # Dynamically binds to the correct GitHub Environment
     steps:
       - uses: actions/checkout@v4
