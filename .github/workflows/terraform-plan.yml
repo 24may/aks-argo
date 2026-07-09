@@ -17,9 +17,6 @@ jobs:
     strategy:
       matrix:
         env: [dev]   # добавить stage/prod по мере готовности процесса
-    defaults:
-      run:
-        working-directory: envs/${{ matrix.env }}
     steps:
       - uses: actions/checkout@v4
         
@@ -51,11 +48,11 @@ jobs:
 
       - uses: hashicorp/setup-terraform@v3
 
-      - run: terraform init
+      - run: terraform init -backend-config=envs/${{ matrix.env }}/backend.hcl
 
       - name: Terraform Plan
         id: plan
-        run: terraform plan -no-color -out=tfplan.binary
+        run: terraform plan -no-color -var-file=envs/${{ matrix.env }}/${{ matrix.env }}.tfvars -out=tfplan.binary
         continue-on-error: true
 
       - name: Plan text output
@@ -66,7 +63,7 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const plan = fs.readFileSync('envs/${{ matrix.env }}/plan_output.txt', 'utf8').slice(0, 60000);
+            const plan = fs.readFileSync('plan_output.txt', 'utf8').slice(0, 60000);
             const body = `#### Terraform Plan (${{ matrix.env }})\n<details><summary>Показать план</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
