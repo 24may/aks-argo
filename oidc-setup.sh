@@ -16,6 +16,15 @@ az role assignment create \
   --assignee "$APP_ID" \
   --scope "/subscriptions/$SUBSCRIPTION_ID"
 
+az role assignment create \
+  --role "User Access Administrator" \
+  --assignee "$APP_ID" \
+  --scope "/subscriptions/$SUBSCRIPTION_ID"
+
+az role assignment create \
+  --role "Key Vault Secrets Officer" \
+  --assignee "$APP_ID" \
+  --scope "/subscriptions/$SUBSCRIPTION_ID"
 
 # Федеративные учётные данные (по одной на ветку/окружение)
 

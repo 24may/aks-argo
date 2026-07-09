@@ -58,17 +58,34 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.8" # keep in sync with the other terraform-*.yml workflows
 
       - name: Terraform Init
-        run: terraform init -backend-config=envs/${{ github.event.inputs.environment }}/backend.hcl -reconfigure
+        run: terraform init -backend-config=envs/${{ github.event.inputs.environment }}/backend.hcl -reconfigure -lock-timeout=300s
+
+      - name: Backup state before destroy
+        env:
+          TF_VAR_mysql_root_password: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+        # Last-known-good copy independent of Azure blob versioning
+        # (start-script.sh) - destroy is irreversible for real resources, so
+        # this is the recovery point if state itself needs to be rebuilt/imported.
+        run: terraform state pull > state-backup-pre-destroy.json
+
+      - name: Upload state backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: state-backup-${{ github.event.inputs.environment }}-${{ github.run_id }}
+          path: state-backup-pre-destroy.json
+          retention-days: 30
 
       - name: Terraform Plan (destroy)
         id: plan
         env:
           TF_VAR_mysql_root_password: ${{ secrets.MYSQL_ROOT_PASSWORD }}
-        run: terraform plan -destroy -no-color -var-file=envs/${{ github.event.inputs.environment }}/${{ github.event.inputs.environment }}.tfvars -out=tfdestroy.binary
+        run: terraform plan -destroy -lock-timeout=300s -no-color -var-file=envs/${{ github.event.inputs.environment }}/${{ github.event.inputs.environment }}.tfvars -out=tfdestroy.binary
 
       - name: Terraform Destroy (from saved plan)
         env:
           TF_VAR_mysql_root_password: ${{ secrets.MYSQL_ROOT_PASSWORD }}
-        run: terraform apply tfdestroy.binary
+        run: terraform apply -lock-timeout=300s tfdestroy.binary
