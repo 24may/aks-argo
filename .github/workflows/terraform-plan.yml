@@ -1,0 +1,79 @@
+name: Terraform Plan
+
+on:
+  pull_request:
+    paths:
+      - '**/*.tf'
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  plan:
+    # runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, ARM64]
+    strategy:
+      matrix:
+        env: [dev]   # добавить stage/prod по мере готовности процесса
+    steps:
+      - uses: actions/checkout@v4
+        
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Azure CLI
+        run: |
+          if ! command -v az >/dev/null 2>&1; then
+            curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+          fi
+
+      - name: Dubug vars context (временно, удалить после проверки)
+        run: echo "vars context = ${{ toJSON(vars) }}"    
+        
+      - name: Debug (временно, удалить после проверки)
+        run: |
+          echo "CLIENT_ID set: ${{ vars.AZURE_CLIENT_ID != '' }}"
+          echo "TENANT_ID set: ${{ vars.AZURE_TENANT_ID != '' }}"
+          echo "SUBSCRIPTION_ID set: ${{ vars.AZURE_SUBSCRIPTION_ID != '' }}"
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - run: terraform init -backend-config=envs/${{ matrix.env }}/backend.hcl
+
+      - name: Terraform Plan
+        id: plan
+        env:
+          TF_VAR_mysql_root_password: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+        run: terraform plan -no-color -var-file=envs/${{ matrix.env }}/${{ matrix.env }}.tfvars -out=tfplan.binary
+        continue-on-error: true
+
+      - name: Plan text output
+        run: terraform show -no-color tfplan.binary > plan_output.txt
+
+      - name: Comment PR with plan
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('plan_output.txt', 'utf8').slice(0, 60000);
+            const body = `#### Terraform Plan (${{ matrix.env }})\n<details><summary>Показать план</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+
+      - name: Fail if plan failed
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
