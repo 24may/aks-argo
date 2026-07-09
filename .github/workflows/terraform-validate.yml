@@ -19,6 +19,12 @@ jobs:
         working-directory: envs/dev
     steps:
       - uses: actions/checkout@v4
+        
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
 
       - uses: hashicorp/setup-terraform@v3
         with:
