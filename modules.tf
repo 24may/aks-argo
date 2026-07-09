@@ -1,11 +1,11 @@
 resource "azurerm_kubernetes_cluster" "aks" {
-  name                = "aks-andrii"
+  name                = local.aks_name
   location            = var.location
   resource_group_name = var.resource_group_name
-  dns_prefix          = "aks-andrii-dns"
+  dns_prefix          = "${local.aks_name}-dns"
   kubernetes_version  = var.kubernetes_version
   sku_tier            = "Free"
-  node_resource_group = "MC_rg-aks-andrii_aks-andrii_eu"
+  node_resource_group = local.node_rg_name
 
   local_account_disabled            = false
   role_based_access_control_enabled = true

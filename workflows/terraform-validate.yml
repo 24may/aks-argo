@@ -1,0 +1,47 @@
+name: Terraform Validate
+
+on:
+  pull_request:
+    paths:
+      - '**/*.tf'
+      - '.github/workflows/terraform-*.yml'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: envs/dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.8"
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init (backend=false для быстрой проверки)
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: TFLint
+        uses: terraform-linters/setup-tflint@v4
+      - run: tflint --init && tflint -f compact
+
+      - name: Security scan (Checkov)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: terraform
+          soft_fail: true   # true пока не готовы блокировать PR, потом false
+
+      - name: Security scan (tfsec, опционально/дублирует checkov)
+        uses: aquasecurity/tfsec-action@v1.0.3

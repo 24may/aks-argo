@@ -2,44 +2,52 @@
 
 Execute sh script
 
-Execute these commands in the directory containing the .tf files:
+Execute these commands in the directory containing the .tf files.
+
+## Environments
+
+Environment-specific configuration lives under `envs/<env>/`:
+
+```
+envs/
+  dev/    dev.tfvars, backend.hcl    (the original values this repo shipped with)
+  stage/  stage.tfvars, backend.hcl
+  prod/   prod.tfvars, backend.hcl
+```
+
+Each `<env>.tfvars` sets `environment`, `resource_group_name`, `location`, and
+`kubernetes_version`. The `environment` variable suffixes globally/tenant-unique
+resource names (AKS, ACR, Key Vault, AGW, VNet, subnets, public IP) so all three
+environments can coexist in the same subscription. Each `backend.hcl` sets only
+the state file `key`, so each environment gets its own state in the shared
+storage account/container.
+
+`mysql_root_password` is sensitive and is intentionally NOT stored in any tfvars
+file — always supply it via `TF_VAR_mysql_root_password` or a gitignored
+`*.auto.tfvars` file.
 
 ## How to use it:
 
-1. Set the variable securely (recommended via environment variable):
+1. Set the sensitive variable securely (recommended via environment variable):
 
 ```bash
 export TF_VAR_mysql_root_password="YourStrongPassword"
 ```
 
-2. Run plan/apply:
+2. Initialize with the environment's backend config, then plan/apply with its tfvars:
 
 ```bash
-terraform plan -out main.tfplan
-terraform apply "main.tfplan"
-```
+terraform init -backend-config=envs/dev/backend.hcl -reconfigure
 
-3. Alternative:
-
-Put value in a local .tfvars file and pass it explicitly:
-
-```hcl
-mysql_root_password = "YourStrongPassword"
-```
-
-```bash
-terraform plan -var-file="your.tfvars" -out main.tfplan
-```
-
-```bash
-terraform init
-
-terraform plan -out main.tfplan
+terraform plan -var-file=envs/dev/dev.tfvars -out main.tfplan
 
 terraform apply "main.tfplan"
 
-az aks get-credentials --resource-group rg-aks-andrii --name aks-andrii --admin
+az aks get-credentials --resource-group rg-aks-andrii --name aks-andrii-dev --admin
 ```
+
+Swap `dev` for `stage` or `prod` (and update the `--resource-group`/`--name` accordingly)
+to target another environment.
 
 ## ArgoCD Installation via Helm:
 
