@@ -14,6 +14,7 @@ jobs:
   plan:
     # runs-on: ubuntu-latest
     runs-on: [self-hosted, Linux, ARM64]
+    environment: dev
     strategy:
       matrix:
         env: [dev]   # добавить stage/prod по мере готовности процесса
