@@ -34,6 +34,9 @@ jobs:
             curl -sL https://aka.ms/InstallAzureCLIDeb | bash
           fi
 
+      - name: Dubug vars context (временно, удалить после проверки)
+        run: echo "vars context = ${{ toJSON(vars) }}"    
+        
       - name: Debug (временно, удалить после проверки)
         run: |
           echo "CLIENT_ID set: ${{ vars.AZURE_CLIENT_ID != '' }}"
