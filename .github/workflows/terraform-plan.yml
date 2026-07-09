@@ -1,0 +1,59 @@
+name: Terraform Plan
+
+on:
+  pull_request:
+    paths:
+      - '**/*.tf'
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: [dev]   # добавить stage/prod по мере готовности процесса
+    defaults:
+      run:
+        working-directory: envs/${{ matrix.env }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - run: terraform init
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -no-color -out=tfplan.binary
+        continue-on-error: true
+
+      - name: Plan text output
+        run: terraform show -no-color tfplan.binary > plan_output.txt
+
+      - name: Comment PR with plan
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('envs/${{ matrix.env }}/plan_output.txt', 'utf8').slice(0, 60000);
+            const body = `#### Terraform Plan (${{ matrix.env }})\n<details><summary>Показать план</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+
+      - name: Fail if plan failed
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
