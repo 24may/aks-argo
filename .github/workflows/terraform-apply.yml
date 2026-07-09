@@ -23,6 +23,17 @@ jobs:
         working-directory: envs/dev
     steps:
       - uses: actions/checkout@v4
+        
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Azure CLI
+        run: |
+          if ! command -v az >/dev/null 2>&1; then
+            curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+          fi      
 
       - uses: azure/login@v2
         with:
