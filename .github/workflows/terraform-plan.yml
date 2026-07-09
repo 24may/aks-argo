@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - '**/*.tf'
+      - 'envs/**/*.tfvars'
+      - 'envs/**/*.hcl'
+      - '.github/workflows/terraform-*.yml'
+
 
 permissions:
   id-token: write
@@ -12,12 +16,11 @@ permissions:
 
 jobs:
   plan:
-    # runs-on: ubuntu-latest
     runs-on: [self-hosted, Linux, ARM64]
-    environment: dev
     strategy:
       matrix:
         env: [dev]   # добавить stage/prod по мере готовности процесса
+    environment: ${{ matrix.env }} # Dynamically binds to the correct GitHub Environment
     steps:
       - uses: actions/checkout@v4
         
@@ -34,12 +37,17 @@ jobs:
 
       - name: Check Azure credentials
         id: check_creds
+        env:
+          # Passing vars via env block is safer and ensures reliable loading
+          CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          SUB_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
         run: |
-          if [[ -n "${{ vars.AZURE_CLIENT_ID }}" && -n "${{ vars.AZURE_TENANT_ID }}" && -n "${{ vars.AZURE_SUBSCRIPTION_ID }}" ]]; then
+          if [[ -n "$CLIENT_ID" && -n "$TENANT_ID" && -n "$SUB_ID" ]]; then
             echo "available=true" >> $GITHUB_OUTPUT
           else
             echo "available=false" >> $GITHUB_OUTPUT
-            echo "::warning::Azure credentials not configured. Set AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID in the 'dev' GitHub environment to enable Terraform plan."
+            echo "::warning::Azure credentials not configured. Set AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID in the '${{ matrix.env }}' GitHub environment to enable Terraform plan."
           fi
 
       - uses: azure/login@v2
@@ -78,7 +86,7 @@ jobs:
               const plan = fs.readFileSync('plan_output.txt', 'utf8').slice(0, 60000);
               body = `#### Terraform Plan (${{ matrix.env }})\n<details><summary>Показать план</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`;
             } else {
-              body = `#### Terraform Plan (${{ matrix.env }})\n⚠️ Skipped: Azure credentials not configured. Please set \`AZURE_CLIENT_ID\`, \`AZURE_TENANT_ID\`, \`AZURE_SUBSCRIPTION_ID\` in the \`dev\` GitHub environment.`;
+              body = `#### Terraform Plan (${{ matrix.env }})\n⚠️ Skipped: Azure credentials not configured. Please set \`AZURE_CLIENT_ID\`, \`AZURE_TENANT_ID\`, \`AZURE_SUBSCRIPTION_ID\` in the \`${{ matrix.env }}\` GitHub environment.`;
             }
             github.rest.issues.createComment({
               issue_number: context.issue.number,
@@ -90,5 +98,3 @@ jobs:
       - name: Fail if plan failed
         if: steps.plan.outcome == 'failure'
         run: exit 1
-
-        
