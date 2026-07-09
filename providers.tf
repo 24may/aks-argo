@@ -6,7 +6,7 @@ terraform {
     resource_group_name  = "rg-aks-andrii"
     storage_account_name = "sttfstateandrii"
     container_name       = "tfstate"
-    use_oidc               = true
+    use_oidc             = true
   }
   required_providers {
     azurerm = {
