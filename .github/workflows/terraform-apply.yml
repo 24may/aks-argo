@@ -20,7 +20,12 @@ jobs:
     concurrency:
       group: terraform-dev
       cancel-in-progress: false
-    environment: dev   # для prod — environment: prod с required reviewers
+    # The "dev" GitHub Environment has a required-reviewers protection rule
+    # (configured via `gh api repos/24may/aks-argo/environments/dev`), so this
+    # entire job - including checkout/init - pauses for manual approval before
+    # any step runs. Review the plan posted as a PR comment by "Terraform Plan"
+    # before approving. For prod, use environment: prod with its own reviewers.
+    environment: dev
     steps:
       - uses: actions/checkout@v4
         with:
