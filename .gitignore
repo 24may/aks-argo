@@ -3,3 +3,4 @@
 *.auto.tfvars
 *.tfstate
 *.tfstate.*
+.env
