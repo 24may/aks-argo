@@ -13,7 +13,7 @@ permissions:
 jobs:
   validate:
     #runs-on: ubuntu-latest
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: [self-hosted, aks-argo, terraform]
     defaults:
       run:
         working-directory: envs/dev
@@ -43,14 +43,14 @@ jobs:
         uses: terraform-linters/setup-tflint@v4
       - run: tflint --init && tflint -f compact
 
-      - name: Security scan (Checkov)
-        uses: bridgecrewio/checkov-action@v12.3113.0
-        with:
-          directory: .
-          framework: terraform
-          soft_fail: true   # true пока не готовы блокировать PR, потом false
-      # - name: Install Checkov
-      #   run: python3 -m venv .venv && source .venv/bin/activate && python3 -m pip install checkov
+      # - name: Security scan (Checkov)
+      #   uses: bridgecrewio/checkov-action@v12.3113.0
+      #   with:
+      #     directory: .
+      #     framework: terraform
+      #     soft_fail: true   # true пока не готовы блокировать PR, потом false
+      - name: Install Checkov
+        run: pip3 install checkov
 
       - name: Run Checkov
         run: |
