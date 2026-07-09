@@ -14,6 +14,12 @@ jobs:
   apply:
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: [self-hosted, Linux, ARM64]
+    # Same lock name/key as terraform-plan.yml's "dev" matrix entry and
+    # terraform-destroy.yml so plan/apply/destroy never interleave and stale
+    # the saved plan out from under this job.
+    concurrency:
+      group: terraform-dev
+      cancel-in-progress: false
     environment: dev   # для prod — environment: prod с required reviewers
     steps:
       - uses: actions/checkout@v4

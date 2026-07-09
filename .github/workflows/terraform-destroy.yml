@@ -23,6 +23,12 @@ permissions:
 jobs:
   destroy:
     runs-on: [self-hosted, Linux, ARM64]
+    # Same lock key convention as terraform-plan.yml/terraform-apply.yml
+    # ("terraform-<env>") so a destroy can never run concurrently with a plan
+    # or apply against the same environment's state.
+    concurrency:
+      group: terraform-${{ github.event.inputs.environment }}
+      cancel-in-progress: false
     environment: ${{ github.event.inputs.environment }} # Dynamically binds to the correct GitHub Environment (required reviewers for prod)
     steps:
       - name: Validate confirmation input
