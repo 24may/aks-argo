@@ -1,14 +1,10 @@
 name: Terraform Apply
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Terraform Plan"]
     branches: [main]
-    paths:
-    #  - 'envs/dev/**'
-      - '**/*.tf'
-      - 'envs/**/*.tfvars'
-      - 'envs/**/*.hcl'
-      - '.github/workflows/terraform-*.yml'
+    types: [completed]
 
 permissions:
   id-token: write
@@ -16,14 +12,14 @@ permissions:
 
 jobs:
   apply:
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: [self-hosted, Linux, ARM64]
     environment: dev   # для prod — environment: prod с required reviewers
-    defaults:
-      run:
-        working-directory: envs/dev
     steps:
       - uses: actions/checkout@v4
-        
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
       - name: Setup Node.js environment
         uses: actions/setup-node@v4
         with:
@@ -33,7 +29,7 @@ jobs:
         run: |
           if ! command -v az >/dev/null 2>&1; then
             curl -sL https://aka.ms/InstallAzureCLIDeb | bash
-          fi      
+          fi
 
       - uses: azure/login@v2
         with:
@@ -43,5 +39,17 @@ jobs:
 
       - uses: hashicorp/setup-terraform@v3
 
-      - run: terraform init
-      - run: terraform apply -auto-approve
+      - name: Download plan artifact from Terraform Plan run
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-dev
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Terraform Init
+        run: terraform init -backend-config=envs/dev/backend.hcl
+
+      - name: Terraform Apply (from saved plan)
+        env:
+          TF_VAR_mysql_root_password: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+        run: terraform apply tfplan.binary
