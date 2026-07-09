@@ -1,7 +1,7 @@
 services:
   github-runner:
     image: myoung34/github-runner:ubuntu-jammy
-    container_name: local-github-runner
+    container_name: local-github-runner-docker
     environment:
       # The full URL to your repository (or organization)
       - REPO_URL=https://github.com/24may/aks-argo
@@ -12,7 +12,7 @@ services:
       - RUNNER_NAME=docker-local-runner
       - RUNNER_WORKDIR=/tmp/runner/work
       - RUNNER_GROUP=Default
-      - LABELS=aks-argo,terraform
+      - LABELS=ARM64,Linux
       
       # Optional: If your workflows build Docker images, you need this
       # to pass your host machine's Docker engine into the runner.
