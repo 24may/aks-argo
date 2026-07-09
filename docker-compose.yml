@@ -5,7 +5,7 @@ services:
     environment:
       # The full URL to your repository (or organization)
       - REPO_URL=https://github.com/24may/aks-argo
-      - RUNNER_EPHEMERAL=true
+      # - RUNNER_EPHEMERAL=true
       # Use either RUNNER_TOKEN or ACCESS_TOKEN (Read Step 2 below)
       - RUNNER_TOKEN=${RUNNER_TOKEN}
       
