@@ -4,7 +4,11 @@ on:
   push:
     branches: [main]
     paths:
-      - 'envs/dev/**'
+    #  - 'envs/dev/**'
+      - '**/*.tf'
+      - 'envs/**/*.tfvars'
+      - 'envs/**/*.hcl'
+      - '.github/workflows/terraform-*.yml'
 
 permissions:
   id-token: write
