@@ -54,6 +54,7 @@ jobs:
 
       - name: Run Checkov
         run: |
+          source .venv/bin/activate
           checkov -d . \
             --framework terraform \
             --soft-fail \
