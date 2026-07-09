@@ -27,5 +27,4 @@ variable "mysql_root_password" {
   description = "MySQL root password stored as DatabasePassword secret in Key Vault"
   type        = string
   sensitive   = true
-  default     = "MySQLRootPassword123!"
 }
