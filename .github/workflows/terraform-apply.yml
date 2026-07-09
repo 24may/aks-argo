@@ -44,6 +44,8 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.8" # keep in sync with the other terraform-*.yml workflows
 
       - name: Download plan artifact from Terraform Plan run
         uses: actions/download-artifact@v4
@@ -53,9 +55,24 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Terraform Init
-        run: terraform init -backend-config=envs/dev/backend.hcl
+        run: terraform init -backend-config=envs/dev/backend.hcl -lock-timeout=300s
+
+      - name: Backup state before apply
+        env:
+          TF_VAR_mysql_root_password: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+        # Independent recovery point in addition to Azure blob versioning
+        # (start-script.sh) - if this apply is interrupted mid-write or
+        # corrupts state, the last-known-good state is preserved as an artifact.
+        run: terraform state pull > state-backup-pre-apply.json
+
+      - name: Upload state backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: state-backup-dev-${{ github.run_id }}
+          path: state-backup-pre-apply.json
+          retention-days: 30
 
       - name: Terraform Apply (from saved plan)
         env:
           TF_VAR_mysql_root_password: ${{ secrets.MYSQL_ROOT_PASSWORD }}
-        run: terraform apply tfplan.binary
+        run: terraform apply -lock-timeout=300s tfplan.binary

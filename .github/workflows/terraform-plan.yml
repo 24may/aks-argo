@@ -72,17 +72,31 @@ jobs:
 
       - uses: hashicorp/setup-terraform@v3
         if: steps.check_creds.outputs.available == 'true'
+        with:
+          # Pin the same version used by terraform-apply.yml/terraform-destroy.yml/
+          # terraform-validate.yml - a mismatched CLI version between plan and
+          # apply can rewrite the state file to a different format/serial and
+          # cause spurious diffs or lock/version errors.
+          terraform_version: "1.15.8"
 
       - name: Terraform Init
         if: steps.check_creds.outputs.available == 'true'
-        run: terraform init -backend-config=envs/${{ matrix.env }}/backend.hcl
+        run: terraform init -backend-config=envs/${{ matrix.env }}/backend.hcl -lock-timeout=300s
+
+      - name: Terraform Validate
+        if: steps.check_creds.outputs.available == 'true'
+        run: terraform validate
 
       - name: Terraform Plan
         id: plan
         if: steps.check_creds.outputs.available == 'true'
         env:
           TF_VAR_mysql_root_password: ${{ secrets.MYSQL_ROOT_PASSWORD }}
-        run: terraform plan -no-color -var-file=envs/${{ matrix.env }}/${{ matrix.env }}.tfvars -out=tfplan.binary
+        # -lock-timeout retries against the state lock instead of failing
+        # immediately on transient contention (e.g. a just-finished apply
+        # still releasing its lease), which discourages reaching for
+        # `terraform force-unlock` - the real risk factor for state corruption.
+        run: terraform plan -lock-timeout=300s -no-color -var-file=envs/${{ matrix.env }}/${{ matrix.env }}.tfvars -out=tfplan.binary
         continue-on-error: true
 
       - name: Plan text output
