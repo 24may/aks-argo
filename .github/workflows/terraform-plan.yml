@@ -18,9 +18,6 @@ jobs:
     strategy:
       matrix:
         env: [dev]   # добавить stage/prod по мере готовности процесса
-    defaults:
-      run:
-        working-directory: envs/${{ matrix.env }}
     steps:
       - uses: actions/checkout@v4
         
@@ -35,28 +32,40 @@ jobs:
             curl -sL https://aka.ms/InstallAzureCLIDeb | bash
           fi
 
-      - name: Dubug vars context (временно, удалить после проверки)
-        run: echo "vars context = ${{ toJSON(vars) }}"    
-        
+      - name: Check Azure credentials
+        id: check_creds
+        run: |
+          if [[ -n "${{ vars.AZURE_CLIENT_ID }}" && -n "${{ vars.AZURE_TENANT_ID }}" && -n "${{ vars.AZURE_SUBSCRIPTION_ID }}" ]]; then
+            echo "available=true" >> $GITHUB_OUTPUT
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+            echo "::warning::Azure credentials not configured. Set AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID in the 'dev' GitHub environment to enable Terraform plan."
+          fi
 
       - uses: azure/login@v2
+        if: steps.check_creds.outputs.available == 'true'
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - uses: hashicorp/setup-terraform@v3
+        if: steps.check_creds.outputs.available == 'true'
 
-      - run: terraform init -backend-config=envs/${{ matrix.env }}/backend.hcl
+      - name: Terraform Init
+        if: steps.check_creds.outputs.available == 'true'
+        run: terraform init -backend-config=envs/${{ matrix.env }}/backend.hcl
 
       - name: Terraform Plan
         id: plan
+        if: steps.check_creds.outputs.available == 'true'
         env:
           TF_VAR_mysql_root_password: ${{ secrets.MYSQL_ROOT_PASSWORD }}
         run: terraform plan -no-color -var-file=envs/${{ matrix.env }}/${{ matrix.env }}.tfvars -out=tfplan.binary
         continue-on-error: true
 
       - name: Plan text output
+        if: steps.check_creds.outputs.available == 'true'
         run: terraform show -no-color tfplan.binary > plan_output.txt
 
       - name: Comment PR with plan
@@ -64,8 +73,13 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const plan = fs.readFileSync('plan_output.txt', 'utf8').slice(0, 60000);
-            const body = `#### Terraform Plan (${{ matrix.env }})\n<details><summary>Показать план</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`;
+            let body;
+            if ('${{ steps.check_creds.outputs.available }}' === 'true') {
+              const plan = fs.readFileSync('plan_output.txt', 'utf8').slice(0, 60000);
+              body = `#### Terraform Plan (${{ matrix.env }})\n<details><summary>Показать план</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`;
+            } else {
+              body = `#### Terraform Plan (${{ matrix.env }})\n⚠️ Skipped: Azure credentials not configured. Please set \`AZURE_CLIENT_ID\`, \`AZURE_TENANT_ID\`, \`AZURE_SUBSCRIPTION_ID\` in the \`dev\` GitHub environment.`;
+            }
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
