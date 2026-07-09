@@ -12,7 +12,8 @@ permissions:
 
 jobs:
   plan:
-    runs-on: ubuntu-latest
+    # runs-on: ubuntu-latest
+    runs-on: [self-hosted, aks-argo, terraform]
     strategy:
       matrix:
         env: [dev]   # добавить stage/prod по мере готовности процесса
@@ -21,6 +22,11 @@ jobs:
         working-directory: envs/${{ matrix.env }}
     steps:
       - uses: actions/checkout@v4
+        
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
 
       - uses: azure/login@v2
         with:
