@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   apply:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, ARM64]
     environment: dev   # для prod — environment: prod с required reviewers
     defaults:
       run:
