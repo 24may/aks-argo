@@ -54,7 +54,6 @@ jobs:
 
       - name: Run Checkov
         run: |
-
           checkov -d . \
             --framework terraform \
             --soft-fail \
