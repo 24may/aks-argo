@@ -42,3 +42,10 @@ az ad app federated-credential create --id "$APP_ID" --parameters '{
   "subject": "repo:24may/aks-argo:environment:prod",
   "audiences": ["api://AzureADTokenExchange"]
 }'
+
+az ad app federated-credential create --id "$APP_ID" --parameters '{
+  "name": "gh-env-prod",
+  "issuer": "https://token.actions.githubusercontent.com",
+  "subject": "repo:24may/aks-argo:environment:dev",
+  "audiences": ["api://AzureADTokenExchange"]
+}'
