@@ -20,7 +20,7 @@ variable "location" {
 
 variable "kubernetes_version" {
   type    = string
-  default = "1.34.8"
+  default = "1.35.5"
 }
 
 variable "mysql_root_password" {
