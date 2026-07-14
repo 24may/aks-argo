@@ -1,52 +1,83 @@
 name: Terraform Apply
 
 on:
+  # Third stage of the pipeline: automatically triggered once "Terraform
+  # Plan" completes successfully (whether Plan itself was triggered by the
+  # develop -> main PR gate or by a manual dispatch).
   workflow_run:
     workflows: ["Terraform Plan"]
-    branches: [main]
     types: [completed]
-  # Lets a human deploy a single environment (or "all") on demand, generating
-  # and immediately applying a fresh plan for it - useful when you don't want
-  # to wait for/depend on a prior "Terraform Plan" run's saved artifact.
+  # Manual execution: pick a single environment to deploy on demand. Runs a
+  # fresh plan immediately followed by apply, since there's no prior saved
+  # plan artifact to reuse.
   workflow_dispatch:
     inputs:
       environment:
         description: 'Environment to deploy'
         required: true
         type: choice
-        options: [dev, stage, all]   # добавить prod по мере готовности процесса
+        options: [dev, stage]
         default: dev
 
 permissions:
   id-token: write
   contents: read
+  actions: read   # needed to list the "Terraform Plan" run's tfplan-<env> artifacts
 
 jobs:
-  # Computes the env matrix once so both the manual "pick one environment"
-  # dispatch and the automatic post-plan matrix share the same `apply` job.
-  setup:
+  # Gate + compute the env matrix once:
+  # - workflow_dispatch always proceeds, deploying only the chosen environment.
+  # - workflow_run only proceeds if Plan succeeded, and the environments to
+  #   apply are whichever tfplan-<env> artifacts that Plan run actually
+  #   produced (so this automatically follows Plan's own matrix, whether it
+  #   planned one environment or both).
+  gate:
     runs-on: [self-hosted, Linux, ARM64]
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      proceed: ${{ steps.check.outputs.proceed }}
+      matrix: ${{ steps.check.outputs.matrix }}
     steps:
-      - id: set-matrix
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.environment }}" != "all" ]; then
-            echo "matrix=[\"${{ inputs.environment }}\"]" >> "$GITHUB_OUTPUT"
-          else
-            echo 'matrix=["dev","stage"]' >> "$GITHUB_OUTPUT"
-          fi
+      - id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            if (context.eventName === 'workflow_dispatch') {
+              core.setOutput('proceed', 'true');
+              core.setOutput('matrix', JSON.stringify([context.payload.inputs.environment]));
+              return;
+            }
+
+            const run = context.payload.workflow_run;
+            if (run.conclusion !== 'success') {
+              core.setOutput('proceed', 'false');
+              core.setOutput('matrix', '[]');
+              return;
+            }
+
+            const { data: { artifacts } } = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: run.id
+            });
+
+            const envs = artifacts
+              .map(a => a.name)
+              .filter(n => n.startsWith('tfplan-'))
+              .map(n => n.replace('tfplan-', ''));
+
+            core.setOutput('proceed', envs.length > 0 ? 'true' : 'false');
+            core.setOutput('matrix', JSON.stringify(envs));
 
   apply:
-    needs: setup
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
     runs-on: [self-hosted, Linux, ARM64]
     strategy:
       # Keep in sync with terraform-plan.yml's matrix - one apply job per
       # environment that plan produced a tfplan-<env> artifact for (or, on
       # manual dispatch, per environment the user selected).
       matrix:
-        env: ${{ fromJson(needs.setup.outputs.matrix) }}
+        env: ${{ fromJson(needs.gate.outputs.matrix) }}
       fail-fast: false
     # Same lock name/key as terraform-plan.yml's matrix entries and
     # terraform-destroy.yml so plan/apply/destroy never interleave and stale
@@ -54,12 +85,12 @@ jobs:
     concurrency:
       group: terraform-${{ matrix.env }}
       cancel-in-progress: false
-    # The "dev"/"stage" GitHub Environments have a required-reviewers
-    # protection rule (configured via `gh api repos/24may/aks-argo/environments/<env>`),
-    # so this entire job - including checkout/init - pauses for manual approval
-    # before any step runs. Review the plan posted as a PR comment by
-    # "Terraform Plan" before approving. For prod, use environment: prod with
-    # its own reviewers.
+    # Approval step: the "dev"/"stage" GitHub Environments have a
+    # required-reviewers protection rule (configured via
+    # `gh api repos/24may/aks-argo/environments/<env>`), so this entire job -
+    # including checkout/init - pauses for manual approval before any step
+    # runs. Review the plan posted as a PR comment by "Terraform Plan" before
+    # approving.
     environment: ${{ matrix.env }}
     steps:
       - uses: actions/checkout@v4
