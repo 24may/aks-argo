@@ -52,12 +52,14 @@ to target another environment.
 ## ArgoCD Installation via Helm:
 
 ```bash
-kubectl create namespace argocd
 helm repo add argo https://argoproj.github.io/argo-helm
+helm repo update
 
-helm upgrade argocd argo/argo-cd \
+helm upgrade --install argocd argo/argo-cd \
   --namespace argocd \
-  -f yaml/argo-values.yaml
+  --create-namespace \
+  -f yaml/argo-values.yaml \
+  --wait
 
 kubectl port-forward service/argocd-server -n argocd 8080:443
 kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
