@@ -1,20 +1,21 @@
 name: Terraform Plan
 
 on:
-  pull_request:
-    paths:
-      - '**/*.tf'
-      - 'envs/**/*.tfvars'
-      - 'envs/**/*.hcl'
-      - '.github/workflows/terraform-*.yml'
-  push:
-    branches: [main]
-    paths:
-      - '**/*.tf'
-      - 'envs/**/*.tfvars'
-      - 'envs/**/*.hcl'
-      - '.github/workflows/terraform-*.yml'
-
+  # Second stage of the pipeline: only run automatically once "Terraform
+  # Validate" has passed, and only when that validated push is on `develop`
+  # with an open PR targeting `main` (the promotion PR gate).
+  workflow_run:
+    workflows: ["Terraform Validate"]
+    types: [completed]
+  # Manual execution: pick a single environment to plan on demand.
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to plan'
+        required: true
+        type: choice
+        options: [dev, stage]
+        default: dev
 
 permissions:
   id-token: write
@@ -22,21 +23,79 @@ permissions:
   pull-requests: write
 
 jobs:
+  # Gate + compute the env matrix once:
+  # - workflow_dispatch always proceeds, planning only the chosen environment.
+  # - workflow_run only proceeds if Validate succeeded on `develop` AND an
+  #   open develop -> main pull request exists; in that case both dev and
+  #   stage are planned (the promotion pipeline covers both).
+  gate:
+    runs-on: [self-hosted, Linux, ARM64]
+    outputs:
+      proceed: ${{ steps.check.outputs.proceed }}
+      matrix: ${{ steps.check.outputs.matrix }}
+      pr_number: ${{ steps.check.outputs.pr_number }}
+    steps:
+      - id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            if (context.eventName === 'workflow_dispatch') {
+              core.setOutput('proceed', 'true');
+              core.setOutput('matrix', JSON.stringify([context.payload.inputs.environment]));
+              core.setOutput('pr_number', '');
+              return;
+            }
+
+            const run = context.payload.workflow_run;
+            if (run.conclusion !== 'success' || run.head_branch !== 'develop') {
+              core.setOutput('proceed', 'false');
+              core.setOutput('matrix', '[]');
+              core.setOutput('pr_number', '');
+              return;
+            }
+
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              base: 'main',
+              head: `${context.repo.owner}:develop`
+            });
+
+            if (prs.length === 0) {
+              core.setOutput('proceed', 'false');
+              core.setOutput('matrix', '[]');
+              core.setOutput('pr_number', '');
+              return;
+            }
+
+            core.setOutput('proceed', 'true');
+            core.setOutput('matrix', '["dev","stage"]');
+            core.setOutput('pr_number', String(prs[0].number));
+
   plan:
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
     runs-on: [self-hosted, Linux, ARM64]
     strategy:
       matrix:
-        env: [dev]   # добавить stage/prod по мере готовности процесса
+        env: ${{ fromJson(needs.gate.outputs.matrix) }}
+      fail-fast: false
     # Serialize against apply/destroy on the same environment's state so a plan
     # can never be produced (or consumed) while another run is mutating state -
     # this is what causes "Error: Saved plan is stale" in the downstream apply job.
     concurrency:
       group: terraform-${{ matrix.env }}
       cancel-in-progress: false
+    # Approval step: the "dev"/"stage" GitHub Environments have a
+    # required-reviewers protection rule, so this job pauses for manual
+    # approval before any step runs.
     environment: ${{ matrix.env }} # Dynamically binds to the correct GitHub Environment
     steps:
       - uses: actions/checkout@v4
-        
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.workflow_run.head_sha }}
+
       - name: Setup Node.js environment
         uses: actions/setup-node@v4
         with:
@@ -112,7 +171,7 @@ jobs:
           retention-days: 5
 
       - name: Comment PR with plan
-        if: github.event_name == 'pull_request'
+        if: needs.gate.outputs.pr_number != ''
         uses: actions/github-script@v7
         with:
           script: |
@@ -125,7 +184,7 @@ jobs:
               body = `#### Terraform Plan (${{ matrix.env }})\n⚠️ Skipped: Azure credentials not configured. Please set \`AZURE_CLIENT_ID\`, \`AZURE_TENANT_ID\`, \`AZURE_SUBSCRIPTION_ID\` in the \`${{ matrix.env }}\` GitHub environment.`;
             }
             github.rest.issues.createComment({
-              issue_number: context.issue.number,
+              issue_number: ${{ needs.gate.outputs.pr_number }},
               owner: context.repo.owner,
               repo: context.repo.repo,
               body
