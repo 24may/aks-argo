@@ -7,7 +7,7 @@ spec:
   project: default
   source:
     repoURL: 'https://github.com/24may/aks-argo.git'
-    targetRevision: HEAD
+    targetRevision: main
     path: yaml/apps
   destination:
     server: 'https://kubernetes.default.svc'
@@ -17,4 +17,4 @@ spec:
       prune: true
       selfHeal: true
     syncOptions:
-      - CreateNamespace=true
+    - CreateNamespace=true
