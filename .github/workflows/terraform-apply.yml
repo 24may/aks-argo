@@ -14,18 +14,25 @@ jobs:
   apply:
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: [self-hosted, Linux, ARM64]
-    # Same lock name/key as terraform-plan.yml's "dev" matrix entry and
+    strategy:
+      # Keep in sync with terraform-plan.yml's matrix - one apply job per
+      # environment that plan produced a tfplan-<env> artifact for.
+      matrix:
+        env: [dev, stage]   # добавить prod по мере готовности процесса
+      fail-fast: false
+    # Same lock name/key as terraform-plan.yml's matrix entries and
     # terraform-destroy.yml so plan/apply/destroy never interleave and stale
     # the saved plan out from under this job.
     concurrency:
-      group: terraform-dev
+      group: terraform-${{ matrix.env }}
       cancel-in-progress: false
-    # The "dev" GitHub Environment has a required-reviewers protection rule
-    # (configured via `gh api repos/24may/aks-argo/environments/dev`), so this
-    # entire job - including checkout/init - pauses for manual approval before
-    # any step runs. Review the plan posted as a PR comment by "Terraform Plan"
-    # before approving. For prod, use environment: prod with its own reviewers.
-    environment: dev
+    # The "dev"/"stage" GitHub Environments have a required-reviewers
+    # protection rule (configured via `gh api repos/24may/aks-argo/environments/<env>`),
+    # so this entire job - including checkout/init - pauses for manual approval
+    # before any step runs. Review the plan posted as a PR comment by
+    # "Terraform Plan" before approving. For prod, use environment: prod with
+    # its own reviewers.
+    environment: ${{ matrix.env }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,12 +62,12 @@ jobs:
       - name: Download plan artifact from Terraform Plan run
         uses: actions/download-artifact@v4
         with:
-          name: tfplan-dev
+          name: tfplan-${{ matrix.env }}
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Terraform Init
-        run: terraform init -backend-config=envs/dev/backend.hcl -lock-timeout=300s
+        run: terraform init -backend-config=envs/${{ matrix.env }}/backend.hcl -lock-timeout=300s
 
       - name: Backup state before apply
         env:
@@ -73,7 +80,7 @@ jobs:
       - name: Upload state backup artifact
         uses: actions/upload-artifact@v4
         with:
-          name: state-backup-dev-${{ github.run_id }}
+          name: state-backup-${{ matrix.env }}-${{ github.run_id }}
           path: state-backup-pre-apply.json
           retention-days: 30
 

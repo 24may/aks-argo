@@ -53,8 +53,16 @@ az ad app federated-credential create --id "$APP_ID" --parameters '{
 }'
 
 az ad app federated-credential create --id "$APP_ID" --parameters '{
-  "name": "gh-env-prod",
+  "name": "gh-env-dev",
   "issuer": "https://token.actions.githubusercontent.com",
   "subject": "repo:24may/aks-argo:environment:dev",
+  "audiences": ["api://AzureADTokenExchange"]
+}'
+
+# Для GitHub Environment "stage" (terraform-plan.yml / terraform-apply.yml matrix)
+az ad app federated-credential create --id "$APP_ID" --parameters '{
+  "name": "gh-env-stage",
+  "issuer": "https://token.actions.githubusercontent.com",
+  "subject": "repo:24may/aks-argo:environment:stage",
   "audiences": ["api://AzureADTokenExchange"]
 }'
