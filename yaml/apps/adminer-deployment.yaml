@@ -49,7 +49,8 @@ metadata:
 spec:
   ingressClassName: azure-application-gateway
   rules:
-  - http:
+  - host: adminer.74.248.129.197.nip.io
+    http:
       paths:
       - path: /adminer
         pathType: Prefix
