@@ -5,48 +5,20 @@ on:
     workflows: ["Terraform Plan"]
     branches: [main]
     types: [completed]
-  # Lets a human deploy a single environment (or "all") on demand, generating
-  # and immediately applying a fresh plan for it - useful when you don't want
-  # to wait for/depend on a prior "Terraform Plan" run's saved artifact.
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy'
-        required: true
-        type: choice
-        options: [dev, stage, all]   # добавить prod по мере готовности процесса
-        default: dev
 
 permissions:
   id-token: write
   contents: read
 
 jobs:
-  # Computes the env matrix once so both the manual "pick one environment"
-  # dispatch and the automatic post-plan matrix share the same `apply` job.
-  setup:
-    runs-on: [self-hosted, Linux, ARM64]
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      - id: set-matrix
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.environment }}" != "all" ]; then
-            echo "matrix=[\"${{ inputs.environment }}\"]" >> "$GITHUB_OUTPUT"
-          else
-            echo 'matrix=["dev","stage"]' >> "$GITHUB_OUTPUT"
-          fi
-
   apply:
-    needs: setup
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: [self-hosted, Linux, ARM64]
     strategy:
       # Keep in sync with terraform-plan.yml's matrix - one apply job per
-      # environment that plan produced a tfplan-<env> artifact for (or, on
-      # manual dispatch, per environment the user selected).
+      # environment that plan produced a tfplan-<env> artifact for.
       matrix:
-        env: ${{ fromJson(needs.setup.outputs.matrix) }}
+        env: [dev, stage]   # добавить prod по мере готовности процесса
       fail-fast: false
     # Same lock name/key as terraform-plan.yml's matrix entries and
     # terraform-destroy.yml so plan/apply/destroy never interleave and stale
@@ -64,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Setup Node.js environment
         uses: actions/setup-node@v4
@@ -87,22 +59,15 @@ jobs:
         with:
           terraform_version: "1.15.8" # keep in sync with the other terraform-*.yml workflows
 
-      - name: Terraform Init
-        run: terraform init -backend-config=envs/${{ matrix.env }}/backend.hcl -lock-timeout=300s
-
       - name: Download plan artifact from Terraform Plan run
-        if: github.event_name == 'workflow_run'
         uses: actions/download-artifact@v4
         with:
           name: tfplan-${{ matrix.env }}
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Terraform Plan (manual dispatch only - no prior saved plan to reuse)
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          TF_VAR_mysql_root_password: ${{ secrets.MYSQL_ROOT_PASSWORD }}
-        run: terraform plan -lock-timeout=300s -no-color -var-file=envs/${{ matrix.env }}/${{ matrix.env }}.tfvars -out=tfplan.binary
+      - name: Terraform Init
+        run: terraform init -backend-config=envs/${{ matrix.env }}/backend.hcl -lock-timeout=300s
 
       - name: Backup state before apply
         env:

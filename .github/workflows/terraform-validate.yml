@@ -5,55 +5,23 @@ on:
     paths:
       - '**/*.tf'
       - '.github/workflows/terraform-*.yml'
-  # Lets a human run validate/lint/scan against a specific environment's real
-  # backend (instead of the fast `-backend=false` check used on PRs).
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment backend to validate against (leave as "none" for the fast -backend=false check)'
-        required: true
-        type: choice
-        options: [none, dev, stage, all]   # добавить prod по мере готовности процесса
-        default: none
 
 permissions:
   id-token: write
   contents: read
 
 jobs:
-  # Computes the env matrix once: PR runs and the default manual dispatch use
-  # a single "none" entry (fast -backend=false check); picking a specific
-  # environment (or "all") validates against that/those real backend(s).
-  setup:
-    runs-on: [self-hosted, Linux, ARM64]
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      - id: set-matrix
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.environment }}" = "all" ]; then
-            echo 'matrix=["dev","stage"]' >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.environment }}" != "none" ]; then
-            echo "matrix=[\"${{ inputs.environment }}\"]" >> "$GITHUB_OUTPUT"
-          else
-            echo 'matrix=["none"]' >> "$GITHUB_OUTPUT"
-          fi
-
   validate:
-    needs: setup
     #runs-on: ubuntu-latest
     runs-on: [self-hosted, Linux, ARM64]
-    strategy:
-      matrix:
-        env: ${{ fromJson(needs.setup.outputs.matrix) }}
-      fail-fast: false
     steps:
       - uses: actions/checkout@v4
-
+        
       - name: Setup Node.js environment
         uses: actions/setup-node@v4
         with:
           node-version: '24'
+
 
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -62,27 +30,8 @@ jobs:
       - name: Terraform fmt check
         run: terraform fmt -check -recursive
 
-      - name: Install Azure CLI
-        if: matrix.env != 'none'
-        run: |
-          if ! command -v az >/dev/null 2>&1; then
-            curl -sL https://aka.ms/InstallAzureCLIDeb | bash
-          fi
-
-      - uses: azure/login@v2
-        if: matrix.env != 'none'
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-
       - name: Terraform init (backend=false для быстрой проверки)
-        if: matrix.env == 'none'
         run: terraform init -backend=false
-
-      - name: Terraform init (real backend for the selected environment)
-        if: matrix.env != 'none'
-        run: terraform init -backend-config=envs/${{ matrix.env }}/backend.hcl -reconfigure -lock-timeout=300s
 
       - name: Terraform validate
         run: terraform validate
