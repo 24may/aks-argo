@@ -14,6 +14,16 @@ on:
       - 'envs/**/*.tfvars'
       - 'envs/**/*.hcl'
       - '.github/workflows/terraform-*.yml'
+  # Lets a human pick a single environment (or "all") to plan on demand,
+  # instead of waiting for a PR/push to trigger the full dev+stage matrix.
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to plan'
+        required: true
+        type: choice
+        options: [dev, stage, all]   # добавить prod по мере готовности процесса
+        default: dev
 
 
 permissions:
@@ -22,11 +32,29 @@ permissions:
   pull-requests: write
 
 jobs:
+  # Computes the env matrix once so both the manual "pick one environment"
+  # path and the automatic PR/push "plan every environment" path share the
+  # same downstream `plan` job definition.
+  setup:
+    runs-on: [self-hosted, Linux, ARM64]
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.environment }}" != "all" ]; then
+            echo "matrix=[\"${{ inputs.environment }}\"]" >> "$GITHUB_OUTPUT"
+          else
+            echo 'matrix=["dev","stage"]' >> "$GITHUB_OUTPUT"
+          fi
+
   plan:
+    needs: setup
     runs-on: [self-hosted, Linux, ARM64]
     strategy:
       matrix:
-        env: [dev, stage]   # добавить prod по мере готовности процесса
+        env: ${{ fromJson(needs.setup.outputs.matrix) }}
+      fail-fast: false
     # Serialize against apply/destroy on the same environment's state so a plan
     # can never be produced (or consumed) while another run is mutating state -
     # this is what causes "Error: Saved plan is stale" in the downstream apply job.
