@@ -11,26 +11,33 @@ on:
       - 'envs/**/*.tfvars'
       - 'envs/**/*.hcl'
       - '.github/workflows/terraform-*.yml'
+  pull_request:
+    paths:
+      - '**/*.tf'
+      - 'envs/**/*.tfvars'
+      - 'envs/**/*.hcl'
+      - '.github/workflows/terraform-*.yml'
 
 permissions:
-  id-token: write
   contents: read
+  security-events: write
+
+concurrency:
+  group: terraform-validate-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate:
     #runs-on: ubuntu-latest
     runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Node.js environment
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
 
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.15.8"
+          terraform_wrapper: false
 
       - name: Terraform fmt check
         run: terraform fmt -check -recursive
@@ -41,9 +48,11 @@ jobs:
       - name: Terraform validate
         run: terraform validate
 
-      - name: TFLint
+      - name: Setup TFLint
         uses: terraform-linters/setup-tflint@v4
-      - run: tflint --init && tflint -f compact
+
+      - name: Run TFLint
+        run: tflint --init && tflint -f compact
 
       # - name: Security scan (Checkov)
       #   uses: bridgecrewio/checkov-action@v12.3113.0
@@ -61,6 +70,12 @@ jobs:
             --soft-fail \
             --output sarif \
             --output-file-path results.sarif
+
+      - name: Upload Checkov SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
 
       - name: Security scan (tfsec, опционально/дублирует checkov)
         uses: aquasecurity/tfsec-action@v1.0.3
