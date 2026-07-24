@@ -109,6 +109,29 @@ jobs:
             exit 1
           fi
 
+      - name: Ensure Azure CLI is installed
+        run: |
+          if command -v az >/dev/null 2>&1; then
+            echo "Azure CLI already installed: $(az version --query '"azure-cli"' -o tsv)"
+            exit 0
+          fi
+
+          if command -v sudo >/dev/null 2>&1; then
+            SUDO="sudo"
+          else
+            SUDO=""
+          fi
+
+          $SUDO apt-get update
+          $SUDO apt-get install -y ca-certificates curl apt-transport-https lsb-release gnupg
+          curl -sLS https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | $SUDO tee /etc/apt/trusted.gpg.d/microsoft.gpg >/dev/null
+          AZ_REPO=$(lsb_release -cs)
+          echo "deb [arch=$(dpkg --print-architecture)] https://packages.microsoft.com/repos/azure-cli/ ${AZ_REPO} main" | $SUDO tee /etc/apt/sources.list.d/azure-cli.list
+          $SUDO apt-get update
+          $SUDO apt-get install -y azure-cli
+
+          az version --query '"azure-cli"' -o tsv
+
       - uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
