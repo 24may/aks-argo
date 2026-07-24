@@ -1,5 +1,5 @@
 # Centralized naming convention: every resource that is globally/tenant-unique
-# or could collide across environments (dev/stage/prod) sharing the same
+# or could collide across environments (dev/qa/stage/prod) sharing the same
 # subscription is suffixed with var.environment.
 locals {
   aks_name     = "aks-andrii-${var.environment}"
