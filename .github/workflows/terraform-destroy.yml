@@ -23,6 +23,7 @@ permissions:
 jobs:
   destroy:
     runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 60
     # Same lock key convention as terraform-plan.yml/terraform-apply.yml
     # ("terraform-<env>") so a destroy can never run concurrently with a plan
     # or apply against the same environment's state.
@@ -40,15 +41,15 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js environment
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-
-      - name: Install Azure CLI
+      - name: Validate Azure credentials
+        env:
+          CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          SUB_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
         run: |
-          if ! command -v az >/dev/null 2>&1; then
-            curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+          if [[ -z "$CLIENT_ID" || -z "$TENANT_ID" || -z "$SUB_ID" ]]; then
+            echo "::error::Missing Azure OIDC variables. Set AZURE_CLIENT_ID, AZURE_TENANT_ID, and AZURE_SUBSCRIPTION_ID in the '${{ github.event.inputs.environment }}' GitHub environment."
+            exit 1
           fi
 
       - uses: azure/login@v2
@@ -60,6 +61,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.15.8" # keep in sync with the other terraform-*.yml workflows
+          terraform_wrapper: false
 
       - name: Terraform Init
         run: terraform init -backend-config=envs/${{ github.event.inputs.environment }}/backend.hcl -reconfigure -lock-timeout=300s
@@ -83,9 +85,9 @@ jobs:
         id: plan
         env:
           TF_VAR_mysql_root_password: ${{ secrets.MYSQL_ROOT_PASSWORD }}
-        run: terraform plan -destroy -lock-timeout=300s -no-color -var-file=envs/${{ github.event.inputs.environment }}/${{ github.event.inputs.environment }}.tfvars -out=tfdestroy.binary
+        run: terraform plan -destroy -input=false -lock-timeout=300s -no-color -var-file=envs/${{ github.event.inputs.environment }}/${{ github.event.inputs.environment }}.tfvars -out=tfdestroy.binary
 
       - name: Terraform Destroy (from saved plan)
         env:
           TF_VAR_mysql_root_password: ${{ secrets.MYSQL_ROOT_PASSWORD }}
-        run: terraform apply -lock-timeout=300s tfdestroy.binary
+        run: terraform apply -input=false -lock-timeout=300s -no-color tfdestroy.binary

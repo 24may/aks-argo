@@ -77,6 +77,7 @@ jobs:
     needs: gate
     if: needs.gate.outputs.proceed == 'true'
     runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 35
     strategy:
       matrix:
         env: ${{ fromJson(needs.gate.outputs.matrix) }}
@@ -96,17 +97,6 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.workflow_run.head_sha }}
 
-      - name: Setup Node.js environment
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-
-      - name: Install Azure CLI
-        run: |
-          if ! command -v az >/dev/null 2>&1; then
-            curl -sL https://aka.ms/InstallAzureCLIDeb | bash
-          fi
-
       - name: Check Azure credentials
         id: check_creds
         env:
@@ -121,6 +111,30 @@ jobs:
             echo "available=false" >> $GITHUB_OUTPUT
             echo "::warning::Azure credentials not configured. Set AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID in the '${{ matrix.env }}' GitHub environment to enable Terraform plan."
           fi
+
+      - name: Ensure Azure CLI is installed
+        if: steps.check_creds.outputs.available == 'true'
+        run: |
+          if command -v az >/dev/null 2>&1; then
+            echo "Azure CLI already installed: $(az version --query '"azure-cli"' -o tsv)"
+            exit 0
+          fi
+
+          if command -v sudo >/dev/null 2>&1; then
+            SUDO="sudo"
+          else
+            SUDO=""
+          fi
+
+          $SUDO apt-get update
+          $SUDO apt-get install -y ca-certificates curl apt-transport-https lsb-release gnupg
+          curl -sLS https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | $SUDO tee /etc/apt/trusted.gpg.d/microsoft.gpg >/dev/null
+          AZ_REPO=$(lsb_release -cs)
+          echo "deb [arch=$(dpkg --print-architecture)] https://packages.microsoft.com/repos/azure-cli/ ${AZ_REPO} main" | $SUDO tee /etc/apt/sources.list.d/azure-cli.list
+          $SUDO apt-get update
+          $SUDO apt-get install -y azure-cli
+
+          az version --query '"azure-cli"' -o tsv
 
       - uses: azure/login@v2
         if: steps.check_creds.outputs.available == 'true'
@@ -137,6 +151,7 @@ jobs:
           # apply can rewrite the state file to a different format/serial and
           # cause spurious diffs or lock/version errors.
           terraform_version: "1.15.8"
+          terraform_wrapper: false
 
       - name: Terraform Init
         if: steps.check_creds.outputs.available == 'true'
@@ -155,15 +170,20 @@ jobs:
         # immediately on transient contention (e.g. a just-finished apply
         # still releasing its lease), which discourages reaching for
         # `terraform force-unlock` - the real risk factor for state corruption.
-        run: terraform plan -lock-timeout=300s -no-color -var-file=envs/${{ matrix.env }}/${{ matrix.env }}.tfvars -out=tfplan.binary
-        continue-on-error: true
-
-      - name: Plan text output
-        if: steps.check_creds.outputs.available == 'true'
-        run: terraform show -no-color tfplan.binary > plan_output.txt
+        run: |
+          set +e
+          terraform plan -lock-timeout=300s -no-color -var-file=envs/${{ matrix.env }}/${{ matrix.env }}.tfvars -out=tfplan.binary 2>&1 | tee plan_output.txt
+          exit_code=${PIPESTATUS[0]}
+          echo "exit_code=${exit_code}" >> "$GITHUB_OUTPUT"
+          if [[ "$exit_code" -eq 0 ]]; then
+            echo "succeeded=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "succeeded=false" >> "$GITHUB_OUTPUT"
+          fi
+          exit 0
 
       - name: Upload plan artifact
-        if: steps.check_creds.outputs.available == 'true'
+        if: steps.check_creds.outputs.available == 'true' && steps.plan.outputs.succeeded == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-${{ matrix.env }}
@@ -176,14 +196,44 @@ jobs:
         with:
           script: |
             const fs = require('fs');
+            const marker = '<!-- terraform-plan:${{ matrix.env }} -->';
             let body;
-            if ('${{ steps.check_creds.outputs.available }}' === 'true') {
-              const plan = fs.readFileSync('plan_output.txt', 'utf8').slice(0, 60000);
-              body = `#### Terraform Plan (${{ matrix.env }})\n<details><summary>Показать план</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`;
+            if ('${{ steps.check_creds.outputs.available }}' !== 'true') {
+              body = `${marker}\n#### Terraform Plan (${{ matrix.env }})\n⚠️ Skipped: Azure credentials not configured. Please set \`AZURE_CLIENT_ID\`, \`AZURE_TENANT_ID\`, \`AZURE_SUBSCRIPTION_ID\` in the \`${{ matrix.env }}\` GitHub environment.`;
             } else {
-              body = `#### Terraform Plan (${{ matrix.env }})\n⚠️ Skipped: Azure credentials not configured. Please set \`AZURE_CLIENT_ID\`, \`AZURE_TENANT_ID\`, \`AZURE_SUBSCRIPTION_ID\` in the \`${{ matrix.env }}\` GitHub environment.`;
+              const plan = fs.existsSync('plan_output.txt')
+                ? fs.readFileSync('plan_output.txt', 'utf8').slice(-60000)
+                : 'No plan output generated.';
+              if ('${{ steps.plan.outputs.succeeded }}' === 'true') {
+                body = `${marker}\n#### Terraform Plan (${{ matrix.env }})\n<details><summary>Show plan</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`;
+              } else {
+                body = `${marker}\n#### Terraform Plan (${{ matrix.env }})\n❌ Plan failed.\n<details><summary>Show error output</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`;
+              }
             }
-            github.rest.issues.createComment({
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ needs.gate.outputs.pr_number }}
+            });
+
+            const existing = comments.find(c =>
+              c.user?.type === 'Bot' &&
+              typeof c.body === 'string' &&
+              c.body.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+              return;
+            }
+
+            await github.rest.issues.createComment({
               issue_number: ${{ needs.gate.outputs.pr_number }},
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -191,5 +241,5 @@ jobs:
             });
 
       - name: Fail if plan failed
-        if: steps.plan.outcome == 'failure'
+        if: steps.check_creds.outputs.available == 'true' && steps.plan.outputs.succeeded != 'true'
         run: exit 1

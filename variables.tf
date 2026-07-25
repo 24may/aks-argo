@@ -1,10 +1,10 @@
 variable "environment" {
-  description = "Deployment environment. Used to suffix globally/tenant-unique resource names (ACR, Key Vault, AKS, AGW, VNet, etc.) so dev/stage/prod can coexist."
+  description = "Deployment environment. Used to suffix globally/tenant-unique resource names (ACR, Key Vault, AKS, AGW, VNet, etc.) so dev/qa/stage/prod can coexist."
   type        = string
   default     = "dev"
   validation {
-    condition     = contains(["dev", "stage", "prod"], var.environment)
-    error_message = "environment must be one of: dev, stage, prod."
+    condition     = contains(["dev", "qa", "stage", "prod"], var.environment)
+    error_message = "environment must be one of: dev, qa, stage, prod."
   }
 }
 

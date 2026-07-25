@@ -72,6 +72,7 @@ jobs:
     needs: gate
     if: needs.gate.outputs.proceed == 'true'
     runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 45
     strategy:
       # Keep in sync with terraform-plan.yml's matrix - one apply job per
       # environment that plan produced a tfplan-<env> artifact for (or, on
@@ -97,16 +98,39 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.workflow_run.head_sha }}
 
-      - name: Setup Node.js environment
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-
-      - name: Install Azure CLI
+      - name: Validate Azure credentials
+        env:
+          CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          SUB_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
         run: |
-          if ! command -v az >/dev/null 2>&1; then
-            curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+          if [[ -z "$CLIENT_ID" || -z "$TENANT_ID" || -z "$SUB_ID" ]]; then
+            echo "::error::Missing Azure OIDC variables. Set AZURE_CLIENT_ID, AZURE_TENANT_ID, and AZURE_SUBSCRIPTION_ID in the '${{ matrix.env }}' GitHub environment."
+            exit 1
           fi
+
+      - name: Ensure Azure CLI is installed
+        run: |
+          if command -v az >/dev/null 2>&1; then
+            echo "Azure CLI already installed: $(az version --query '"azure-cli"' -o tsv)"
+            exit 0
+          fi
+
+          if command -v sudo >/dev/null 2>&1; then
+            SUDO="sudo"
+          else
+            SUDO=""
+          fi
+
+          $SUDO apt-get update
+          $SUDO apt-get install -y ca-certificates curl apt-transport-https lsb-release gnupg
+          curl -sLS https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | $SUDO tee /etc/apt/trusted.gpg.d/microsoft.gpg >/dev/null
+          AZ_REPO=$(lsb_release -cs)
+          echo "deb [arch=$(dpkg --print-architecture)] https://packages.microsoft.com/repos/azure-cli/ ${AZ_REPO} main" | $SUDO tee /etc/apt/sources.list.d/azure-cli.list
+          $SUDO apt-get update
+          $SUDO apt-get install -y azure-cli
+
+          az version --query '"azure-cli"' -o tsv
 
       - uses: azure/login@v2
         with:
@@ -117,6 +141,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.15.8" # keep in sync with the other terraform-*.yml workflows
+          terraform_wrapper: false
 
       - name: Terraform Init
         run: terraform init -backend-config=envs/${{ matrix.env }}/backend.hcl -lock-timeout=300s
@@ -133,7 +158,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         env:
           TF_VAR_mysql_root_password: ${{ secrets.MYSQL_ROOT_PASSWORD }}
-        run: terraform plan -lock-timeout=300s -no-color -var-file=envs/${{ matrix.env }}/${{ matrix.env }}.tfvars -out=tfplan.binary
+        run: terraform plan -input=false -lock-timeout=300s -no-color -var-file=envs/${{ matrix.env }}/${{ matrix.env }}.tfvars -out=tfplan.binary
 
       - name: Backup state before apply
         env:
@@ -153,4 +178,4 @@ jobs:
       - name: Terraform Apply (from saved plan)
         env:
           TF_VAR_mysql_root_password: ${{ secrets.MYSQL_ROOT_PASSWORD }}
-        run: terraform apply -lock-timeout=300s tfplan.binary
+        run: terraform apply -input=false -lock-timeout=300s -no-color tfplan.binary
