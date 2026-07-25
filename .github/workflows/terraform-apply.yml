@@ -175,7 +175,24 @@ jobs:
           path: state-backup-pre-apply.json
           retention-days: 30
 
-      - name: Terraform Apply (from saved plan)
+      - name: Terraform Apply
         env:
           TF_VAR_mysql_root_password: ${{ secrets.MYSQL_ROOT_PASSWORD }}
-        run: terraform apply -input=false -lock-timeout=300s -no-color tfplan.binary
+        run: |
+          set +e
+          terraform apply -input=false -lock-timeout=300s -no-color tfplan.binary 2>&1 | tee apply_output.txt
+          exit_code=${PIPESTATUS[0]}
+          set -e
+
+          if [[ "$exit_code" -eq 0 ]]; then
+            exit 0
+          fi
+
+          if grep -q "Saved plan is stale" apply_output.txt; then
+            echo "Saved plan is stale; generating a fresh plan before retrying apply."
+            terraform plan -input=false -lock-timeout=300s -no-color -var-file=envs/${{ matrix.env }}/${{ matrix.env }}.tfvars -out=tfplan.binary
+            terraform apply -input=false -lock-timeout=300s -no-color tfplan.binary
+            exit 0
+          fi
+
+          exit "$exit_code"

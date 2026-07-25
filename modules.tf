@@ -56,14 +56,8 @@ resource "azurerm_role_assignment" "aks_kv_secrets" {
   skip_service_principal_aad_check = true
 }
 
-
-data "azurerm_user_assigned_identity" "agic" {
-  name                = "ingressapplicationgateway-${azurerm_kubernetes_cluster.aks.name}"
-  resource_group_name = azurerm_kubernetes_cluster.aks.node_resource_group
-}
-
 resource "azurerm_role_assignment" "agic_agw_contributor" {
-  principal_id         = data.azurerm_user_assigned_identity.agic.principal_id
+  principal_id         = azurerm_kubernetes_cluster.aks.ingress_application_gateway[0].ingress_application_gateway_identity[0].object_id
   role_definition_name = "Contributor"
   scope                = azurerm_application_gateway.agw.id
 }
@@ -72,13 +66,13 @@ resource "azurerm_role_assignment" "agic_agw_contributor" {
 # to attach the gateway IP configuration. Without this, AppGateway CreateOrUpdate fails with
 # ApplicationGatewayInsufficientPermissionOnSubnet and no backend pool/config is ever pushed.
 resource "azurerm_role_assignment" "agic_agw_subnet_join" {
-  principal_id         = data.azurerm_user_assigned_identity.agic.principal_id
+  principal_id         = azurerm_kubernetes_cluster.aks.ingress_application_gateway[0].ingress_application_gateway_identity[0].object_id
   role_definition_name = "Network Contributor"
   scope                = azurerm_subnet.agw_subnet.id
 }
 
 resource "azurerm_role_assignment" "agic_rg_reader" {
-  principal_id         = data.azurerm_user_assigned_identity.agic.principal_id
+  principal_id         = azurerm_kubernetes_cluster.aks.ingress_application_gateway[0].ingress_application_gateway_identity[0].object_id
   role_definition_name = "Reader"
   scope                = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${var.resource_group_name}"
 }
