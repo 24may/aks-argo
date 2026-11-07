@@ -2,6 +2,9 @@ services:
   github-runner:
     image: myoung34/github-runner:ubuntu-jammy
     container_name: local-github-runner-docker
+    # Host is Apple Silicon running OrbStack; pin the arm64 image so the runner
+    # matches the `ARM64` label (and never falls back to emulated amd64).
+    platform: linux/arm64
     environment:
       # The full URL to your repository (or organization)
       - REPO_URL=https://github.com/24may/aks-argo
@@ -18,7 +21,9 @@ services:
       # to pass your host machine's Docker engine into the runner.
       - DOCKER_HOST=unix:///var/run/docker.sock
     volumes:
-      # Bind the Docker socket to allow Docker-in-Docker operations
+      # Bind the Docker socket to allow Docker-in-Docker operations.
+      # OrbStack maintains /var/run/docker.sock as a symlink to its own socket
+      # (~/.orbstack/run/docker.sock), so this canonical path works unchanged.
       - /var/run/docker.sock:/var/run/docker.sock
       # Bind a local directory to inspect files if a job fails
       - ./runner-data:/tmp/runner/work

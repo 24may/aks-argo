@@ -38,7 +38,7 @@ jobs:
       matrix: ${{ steps.check.outputs.matrix }}
     steps:
       - id: check
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             if (context.eventName === 'workflow_dispatch') {
