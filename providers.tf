@@ -10,8 +10,11 @@ terraform {
   }
   required_providers {
     azurerm = {
-      source  = "hashicorp/azurerm"
-      version = ">= 4.79.0" # Upgraded to resolve deprecated API version
+      source = "hashicorp/azurerm"
+      # Pin to the 4.x major. The old ">= 4.79.0" had no upper bound, so CI
+      # (which ignores the gitignored lock file) floated to azurerm 5.x, where
+      # node_provisioning_profile became a required block -> validate failure.
+      version = "~> 4.80"
     }
     time = {
       source  = "hashicorp/time"
