@@ -3,5 +3,6 @@
 *.auto.tfvars
 *.tfstate
 *.tfstate.*
+*.tfplan
 .env
 runner-data/
